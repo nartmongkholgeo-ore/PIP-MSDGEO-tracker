@@ -13,13 +13,13 @@ def get_google_sheet(sheet_name):
     client = gspread.authorize(creds)
     
     # 🔴 เอา URL ของ Google Sheet คุณมาใส่ตรงนี้ 🔴
-    sheet_url = "https://docs.google.com/spreadsheets/d/ใส่_ID_ชีตของคุณตรงนี้/edit" 
+    sheet_url = "https://docs.google.com/spreadsheets/d/1gQZPiMC-wkzWEsoxY-81pu7LVRsFUf7RoS04X8nCReo/edit?gid=0#gid=0" 
     
     sheet = client.open_by_url(sheet_url).worksheet(sheet_name)
     return sheet
 
-PROJECTS = ["White Cement Limestone", "Raw Material Exploration", "KCL Project", "VCM Mine", "Len Na", "Len Bang"]
-TASK_CATEGORIES = ["Core Logging", "Geochemical Sampling (XRF)", "Mapping", "Drilling Supervision", "Data Modeling", "Report Writing"]
+PROJECTS = ["SWCC", "STS Raw Materials Exploration", "KCL Project", "Quartz SMK", "SKW Laterrite Exploration", "SLP Project", "EPR Reports", "Mine Slope stability", "SLSN Quicklime"]
+TASK_CATEGORIES = ["Data preparation", "Drill planning", "Drilling Supervision", "Core Logging", "Geochemical Sampling (XRF)", "Mapping", "Data Modeling", "Report Writing"]
 PROGRESS_OPTS = ["0%", "25%", "50%", "75%", "100% (Done)"]
 
 st.set_page_config(page_title="PIP Performance Portal", layout="centered")
