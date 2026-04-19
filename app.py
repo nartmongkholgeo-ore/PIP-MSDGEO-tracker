@@ -8,8 +8,11 @@ import datetime
 # --- 1. การเชื่อมต่อ Google Sheets ---
 def get_google_sheet(sheet_name):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    # ดึงรหัสจาก Secrets ของ Streamlit Cloud
     creds_dict = json.loads(st.secrets["gcp_service_account"])
+    
+    # 🌟 เพิ่มบรรทัดนี้เข้าไป 1 บรรทัด เพื่อซ่อมกุญแจ private_key! 🌟
+    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     
