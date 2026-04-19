@@ -19,141 +19,98 @@ def get_google_sheet(sheet_name):
     try:
         return client.open_by_url(sheet_url).worksheet(sheet_name)
     except Exception as e:
-        st.error(f"ไม่พบหน้าแท็บชื่อ '{sheet_name}' ใน Google Sheets กรุณาตรวจสอบการตั้งชื่อแท็บ")
+        st.error(f"❌ ไม่พบแท็บชื่อ '{sheet_name}' กรุณาตรวจสอบชื่อแท็บใน Google Sheets ให้ตรงกัน")
         return None
 
-# --- 2. ฟังก์ชันจัดการข้อมูลผู้ใช้งาน ---
-def fetch_users():
-    sheet = get_google_sheet("Users")
-    if sheet:
-        data = sheet.get_all_records()
-        return pd.DataFrame(data)
-    return pd.DataFrame()
+# --- 2. ระบบจัดการ Session (จำ Login) ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = ""
 
-def add_new_user(username, password, name):
-    sheet = get_google_sheet("Users")
-    if sheet:
-        sheet.append_row([username, password, name, "Geologist"])
-        return True
-    return False
+st.set_page_config(page_title="PIP Performance Portal", layout="centered")
 
-# --- 3. ตั้งค่าระบบ Session (จำการ Login) ---
-if 'auth_status' not in st.session_state:
-    st.session_state.auth_status = False
-if 'user_info' not in st.session_state:
-    st.session_state.user_info = {}
-
-st.set_page_config(page_title="Geologist PIP Performance", layout="centered")
-
-# --- ข้อมูลตัวเลือก (Dropdown Options) ---
-PROJECTS = ["White Cement Limestone", "Raw Material Exploration", "KCL Project", "VCM Mine", "Len Na", "Len Bang"]
-TASKS = ["Core Logging", "Geochemical Sampling (XRF)", "Mapping", "Drilling Supervision", "Data Modeling", "Report Writing"]
-PROGRESS_LEVELS = ["0%", "25%", "50%", "75%", "100% (Done)"]
-
-# --- 4. หน้าจอ Login และสมัครสมาชิก ---
-if not st.session_state.auth_status:
-    st.title("🔐 Geologist Performance Portal")
-    choice = st.radio("เลือกรายการ", ["เข้าสู่ระบบ", "สมัครสมาชิกใหม่"], horizontal=True)
+# --- 3. หน้าจอ Login / Sign Up ---
+if not st.session_state.logged_in:
+    st.title("🔐 เข้าสู่ระบบติดตามงาน")
+    tab_log, tab_sign = st.tabs(["Login", "Sign Up (สมาชิกใหม่)"])
     
-    if choice == "เข้าสู่ระบบ":
+    with tab_log:
         with st.form("login_form"):
             u = st.text_input("Username")
             p = st.text_input("Password", type="password")
             if st.form_submit_button("Log In", use_container_width=True):
-                users_df = fetch_users()
-                if not users_df.empty:
-                    # ตรวจสอบชื่อและรหัส
-                    match = users_df[(users_df['Username'] == u) & (users_df['Password'] == str(p))]
-                    if not match.empty:
-                        st.session_state.auth_status = True
-                        st.session_state.user_info = match.iloc[0].to_dict()
-                        st.success("เข้าสู่ระบบสำเร็จ!")
-                        st.rerun()
-                    else:
-                        st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
-                else:
-                    st.error("ยังไม่มีข้อมูลผู้ใช้งานในระบบ")
-
-    else:
+                user_sheet = get_google_sheet("Users")
+                if user_sheet:
+                    users = pd.DataFrame(user_sheet.get_all_records())
+                    if not users.empty:
+                        match = users[(users['Username'] == u) & (users['Password'] == str(p))]
+                        if not match.empty:
+                            st.session_state.logged_in = True
+                            st.session_state.user_name = match.iloc[0]['Name']
+                            st.rerun()
+                        else: st.error("Username หรือ Password ไม่ถูกต้อง")
+    
+    with tab_sign:
         with st.form("signup_form"):
-            new_u = st.text_input("ตั้งชื่อ Username (ภาษาอังกฤษ)")
+            new_u = st.text_input("ตั้งชื่อ Username")
             new_p = st.text_input("ตั้งรหัสผ่าน", type="password")
-            real_name = st.text_input("ชื่อ-นามสกุลจริง")
-            if st.form_submit_button("ลงทะเบียน"):
-                users_df = fetch_users()
-                if not users_df.empty and new_u in users_df['Username'].values:
-                    st.error("ชื่อ Username นี้ถูกใช้ไปแล้ว")
-                elif new_u and new_p and real_name:
-                    if add_new_user(new_u, new_p, real_name):
-                        st.success("สมัครสมาชิกสำเร็จ! กรุณาสลับไปหน้าเข้าสู่ระบบ")
-                else:
-                    st.warning("กรุณากรอกข้อมูลให้ครบทุกช่อง")
+            new_n = st.text_input("ชื่อ-นามสกุลจริง")
+            if st.form_submit_button("สมัครสมาชิก"):
+                user_sheet = get_google_sheet("Users")
+                if user_sheet:
+                    user_sheet.append_row([new_u, new_p, new_n, "Geologist"])
+                    st.success("สมัครสมาชิกสำเร็จ! กรุณาไปที่หน้า Login")
 
-# --- 5. หน้าจอหลัก (เมื่อ Login แล้ว) ---
+# --- 4. หน้าจอหลัก (เมื่อ Login แล้ว) ---
 else:
-    current_user = st.session_state.user_info
-    st.sidebar.success(f"👤 สวัสดี: {current_user['Name']}")
+    st.sidebar.success(f"👤 สวัสดี: {st.session_state.user_name}")
     if st.sidebar.button("Log Out"):
-        st.session_state.auth_status = False
-        st.session_state.user_info = {}
+        st.session_state.logged_in = False
         st.rerun()
 
-    st.header("📋 ระบบติดตามงานรายสัปดาห์และรายวัน")
-    tab1, tab2 = st.tabs(["📅 Weekly Plan (วันจันทร์)", "📝 Daily Update (รายวัน)"])
+    st.header("📋 ระบบติดตามผลงาน (PIP)")
+    t1, t2 = st.tabs(["📅 วางแผนสัปดาห์ (Weekly)", "📝 รายงานรายวัน (Daily)"])
 
-    # --- ส่วนที่ 1: การวางแผนรายสัปดาห์ ---
-    with tab1:
-        st.info("ใช้สำหรับลงแผนงานตอนต้นสัปดาห์")
+    # --- ส่วนที่ 1: Weekly Plan (ส่งข้อมูลแยกอิสระ) ---
+    with t1:
+        st.subheader("วางแผนงานประจำสัปดาห์")
         with st.form("weekly_form", clear_on_submit=True):
-            plan_date = st.date_input("วันที่เริ่มต้นสัปดาห์")
-            week_num = plan_date.isocalendar()[1]
-            st.write(f"📌 บันทึกแผนงานประจำ **สัปดาห์ที่ {week_num}**")
-
-            col1, col2 = st.columns(2)
-            with col1: p_drop = st.selectbox("เลือกโปรเจกต์", ["-- เลือก --"] + PROJECTS)
-            with col2: p_text = st.text_input("หรือ พิมพ์ชื่อโปรเจกต์ใหม่")
+            p_date = st.date_input("สัปดาห์ของวันที่")
+            w_num = p_date.isocalendar()[1]
+            p_name = st.text_input("ชื่อโปรเจกต์ (Project Name)")
+            p_due = st.date_input("กำหนดส่ง (Deadline)")
             
-            due = st.date_input("กำหนดส่งงาน (Project Deadline)")
-
-            st.markdown("---")
-            st.write("**ตารางงานย่อยประจำสัปดาห์**")
-            task_df = pd.DataFrame([{"งานย่อย": "", "เป้าหมาย": "", "น้ำหนัก (%)": 0}])
-            edited_tasks = st.data_editor(task_df, num_rows="dynamic", use_container_width=True, hide_index=True)
-            
-            kpi_input = st.text_input("ตัวชี้วัดความสำเร็จภาพรวม (KPI)")
+            st.write("แตกงานย่อย (Task Breakdown)")
+            task_df = pd.DataFrame([{"งาน": "", "เป้าหมาย": "", "%": 0}])
+            tasks = st.data_editor(task_df, num_rows="dynamic", use_container_width=True, hide_index=True)
+            kpi = st.text_input("ตัวชี้วัด (KPI)")
 
             if st.form_submit_button("บันทึกแผนงาน", type="primary"):
-                final_project = p_text if p_text.strip() != "" else p_drop
-                if final_project == "-- เลือก --":
-                    st.error("กรุณาระบุชื่อโปรเจกต์")
+                if not p_name: st.error("กรุณากรอกชื่อโปรเจกต์")
                 else:
-                    # รวมตารางงานย่อยเป็นข้อความ
-                    t_list = []
-                    for _, r in edited_tasks.iterrows():
-                        if r['งานย่อย']:
-                            t_list.append(f"- {r['งานย่อย']} ({r['เป้าหมาย']}) [{r['น้ำหนัก (%)']}%]")
-                    
-                    t_str = "\n".join(t_list)
                     sheet = get_google_sheet("Weekly Plan")
                     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    sheet.append_row([ts, current_user['Name'], f"W{week_num}", final_project, str(due), t_str, kpi_input])
-                    st.success("บันทึกแผนประจำสัปดาห์เรียบร้อย!")
+                    # รวมตารางงานเป็นข้อความ
+                    t_str = "\n".join([f"- {r['งาน']} ({r['เป้าหมาย']}) {r['%']}%" for _, r in tasks.iterrows() if r['งาน']])
+                    sheet.append_row([ts, st.session_state.user_name, f"W{w_num}", p_name, str(p_due), t_str, kpi])
+                    st.success("บันทึกแผนรายสัปดาห์สำเร็จ!")
 
-    # --- ส่วนที่ 2: การอัปเดตงานรายวัน ---
-    with tab2:
-        st.info("ใช้สำหรับลงเวลาเข้างานและอัปเดตงานรายวัน")
+    # --- ส่วนที่ 2: Daily Update (ส่งข้อมูลแยกอิสระ) ---
+    with t2:
+        st.subheader("รายงานการทำงานรายวัน")
         with st.form("daily_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
-            with c1: d_work = st.date_input("วันที่ทำงาน")
-            with c2: t_in = st.time_input("เวลาเข้างาน")
-
-            p_upd = st.selectbox("โปรเจกต์ที่ทำวันนี้", PROJECTS)
-            t_cat = st.selectbox("ประเภทงาน", TASKS)
-            prog = st.select_slider("ความคืบหน้างาน (%)", options=PROGRESS_LEVELS)
-            evidence = st.text_input("🔗 ลิงก์หลักฐานงาน (Google Drive/Photo Link)")
+            d_work = c1.date_input("วันที่")
+            t_in = c2.time_input("เวลาเข้างาน")
+            p_upd = st.text_input("ชื่อโปรเจกต์ (Project)")
+            prog = st.select_slider("ความคืบหน้า (%)", options=["0%", "25%", "50%", "75%", "100%"])
+            link = st.text_input("🔗 ลิงก์หลักฐานงาน")
 
             if st.form_submit_button("ส่งรายงานรายวัน", type="primary"):
-                sheet = get_google_sheet("Daily Update")
-                ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                sheet.append_row([ts, current_user['Name'], str(d_work), str(t_in), p_upd, t_cat, prog, evidence])
-                st.success("บันทึกอัปเดตรายวันสำเร็จ!")
+                if not p_upd: st.error("กรุณากรอกชื่อโปรเจกต์")
+                else:
+                    sheet = get_google_sheet("Daily Update")
+                    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    sheet.append_row([ts, st.session_state.user_name, str(d_work), str(t_in), p_upd, "Daily Task", prog, link])
+                    st.success("บันทึกอัปเดตรายวันสำเร็จ!")
