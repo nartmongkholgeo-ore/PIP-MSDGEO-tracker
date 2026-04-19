@@ -2,104 +2,158 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import datetime
 import json
+import datetime
 
-# --- 1. การตั้งค่าการเชื่อมต่อ Google Sheets (ใช้ระบบ Secrets) ---
+# --- 1. การเชื่อมต่อ Google Sheets ---
 def get_google_sheet(sheet_name):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    # ดึงรหัสจาก Secrets ของ Streamlit Cloud
     creds_dict = json.loads(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     
-    # 🔴 เอา URL ของ Google Sheet คุณมาใส่ตรงนี้ 🔴
-    sheet_url = "https://docs.google.com/spreadsheets/d/1gQZPiMC-wkzWEsoxY-81pu7LVRsFUf7RoS04X8nCReo/edit?gid=0#gid=0" 
+    # URL ของคุณที่ระบุมา
+    sheet_url = "https://docs.google.com/spreadsheets/d/1gQZPiMC-wkzWEsoxY-81pu7LVRsFUf7RoS04X8nCReo/edit"
     
-    sheet = client.open_by_url(sheet_url).worksheet(sheet_name)
-    return sheet
+    try:
+        return client.open_by_url(sheet_url).worksheet(sheet_name)
+    except Exception as e:
+        st.error(f"ไม่พบหน้าแท็บชื่อ '{sheet_name}' ใน Google Sheets กรุณาตรวจสอบการตั้งชื่อแท็บ")
+        return None
 
-PROJECTS = ["SWCC", "STS Raw Materials Exploration", "KCL Project", "Quartz SMK", "SKW Laterrite Exploration", "SLP Project", "EPR Reports", "Mine Slope stability", "SLSN Quicklime"]
-TASK_CATEGORIES = ["Data preparation", "Drill planning", "Drilling Supervision", "Core Logging", "Geochemical Sampling (XRF)", "Mapping", "Data Modeling", "Report Writing"]
-PROGRESS_OPTS = ["0%", "25%", "50%", "75%", "100% (Done)"]
+# --- 2. ฟังก์ชันจัดการข้อมูลผู้ใช้งาน ---
+def fetch_users():
+    sheet = get_google_sheet("Users")
+    if sheet:
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    return pd.DataFrame()
 
-st.set_page_config(page_title="PIP Performance Portal", layout="centered")
+def add_new_user(username, password, name):
+    sheet = get_google_sheet("Users")
+    if sheet:
+        sheet.append_row([username, password, name, "Geologist"])
+        return True
+    return False
 
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
+# --- 3. ตั้งค่าระบบ Session (จำการ Login) ---
+if 'auth_status' not in st.session_state:
+    st.session_state.auth_status = False
+if 'user_info' not in st.session_state:
+    st.session_state.user_info = {}
 
-def login():
+st.set_page_config(page_title="Geologist PIP Performance", layout="centered")
+
+# --- ข้อมูลตัวเลือก (Dropdown Options) ---
+PROJECTS = ["White Cement Limestone", "Raw Material Exploration", "KCL Project", "VCM Mine", "Len Na", "Len Bang"]
+TASKS = ["Core Logging", "Geochemical Sampling (XRF)", "Mapping", "Drilling Supervision", "Data Modeling", "Report Writing"]
+PROGRESS_LEVELS = ["0%", "25%", "50%", "75%", "100% (Done)"]
+
+# --- 4. หน้าจอ Login และสมัครสมาชิก ---
+if not st.session_state.auth_status:
     st.title("🔐 Geologist Performance Portal")
-    user = st.text_input("ชื่อพนักงาน")
-    password = st.text_input("รหัสผ่าน", type="password") 
-    if st.button("เข้าสู่ระบบ", use_container_width=True):
-        if user and password == "1234": 
-            st.session_state.logged_in = True
-            st.session_state.user_name = user
-            st.rerun()
-        else:
-            st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+    choice = st.radio("เลือกรายการ", ["เข้าสู่ระบบ", "สมัครสมาชิกใหม่"], horizontal=True)
+    
+    if choice == "เข้าสู่ระบบ":
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Log In", use_container_width=True):
+                users_df = fetch_users()
+                if not users_df.empty:
+                    # ตรวจสอบชื่อและรหัส
+                    match = users_df[(users_df['Username'] == u) & (users_df['Password'] == str(p))]
+                    if not match.empty:
+                        st.session_state.auth_status = True
+                        st.session_state.user_info = match.iloc[0].to_dict()
+                        st.success("เข้าสู่ระบบสำเร็จ!")
+                        st.rerun()
+                    else:
+                        st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+                else:
+                    st.error("ยังไม่มีข้อมูลผู้ใช้งานในระบบ")
 
-if not st.session_state.logged_in:
-    login()
+    else:
+        with st.form("signup_form"):
+            new_u = st.text_input("ตั้งชื่อ Username (ภาษาอังกฤษ)")
+            new_p = st.text_input("ตั้งรหัสผ่าน", type="password")
+            real_name = st.text_input("ชื่อ-นามสกุลจริง")
+            if st.form_submit_button("ลงทะเบียน"):
+                users_df = fetch_users()
+                if not users_df.empty and new_u in users_df['Username'].values:
+                    st.error("ชื่อ Username นี้ถูกใช้ไปแล้ว")
+                elif new_u and new_p and real_name:
+                    if add_new_user(new_u, new_p, real_name):
+                        st.success("สมัครสมาชิกสำเร็จ! กรุณาสลับไปหน้าเข้าสู่ระบบ")
+                else:
+                    st.warning("กรุณากรอกข้อมูลให้ครบทุกช่อง")
+
+# --- 5. หน้าจอหลัก (เมื่อ Login แล้ว) ---
 else:
-    st.sidebar.write(f"👤 ผู้ใช้งาน: **{st.session_state.user_name}**")
-    if st.sidebar.button("Log out"):
-        st.session_state.logged_in = False
+    current_user = st.session_state.user_info
+    st.sidebar.success(f"👤 สวัสดี: {current_user['Name']}")
+    if st.sidebar.button("Log Out"):
+        st.session_state.auth_status = False
+        st.session_state.user_info = {}
         st.rerun()
 
-    st.header("📊 PIP Performance Tracker")
-    tab1, tab2 = st.tabs(["📅 วางแผนรายสัปดาห์", "📝 รายงานผลรายวัน"])
+    st.header("📋 ระบบติดตามงานรายสัปดาห์และรายวัน")
+    tab1, tab2 = st.tabs(["📅 Weekly Plan (วันจันทร์)", "📝 Daily Update (รายวัน)"])
 
+    # --- ส่วนที่ 1: การวางแผนรายสัปดาห์ ---
     with tab1:
-        with st.form("weekly_plan_form", clear_on_submit=True):
-            st.subheader("Weekly Commitment")
+        st.info("ใช้สำหรับลงแผนงานตอนต้นสัปดาห์")
+        with st.form("weekly_form", clear_on_submit=True):
             plan_date = st.date_input("วันที่เริ่มต้นสัปดาห์")
             week_num = plan_date.isocalendar()[1]
-            st.info(f"บันทึกสำหรับ: **สัปดาห์ที่ {week_num}**")
+            st.write(f"📌 บันทึกแผนงานประจำ **สัปดาห์ที่ {week_num}**")
 
             col1, col2 = st.columns(2)
-            with col1: p_select = st.selectbox("เลือกโปรเจกต์", ["-- เลือก --"] + PROJECTS)
-            with col2: p_new = st.text_input("หรือพิมพ์โปรเจกต์ใหม่")
+            with col1: p_drop = st.selectbox("เลือกโปรเจกต์", ["-- เลือก --"] + PROJECTS)
+            with col2: p_text = st.text_input("หรือ พิมพ์ชื่อโปรเจกต์ใหม่")
             
-            deadline = st.date_input("กำหนดส่งงาน (Deadline)")
+            due = st.date_input("กำหนดส่งงาน (Project Deadline)")
 
             st.markdown("---")
-            st.write("**แตกย่อยงานประจำสัปดาห์ (Task Breakdown)**")
-            init_df = pd.DataFrame([{"งานย่อย": "", "เป้าหมาย": "", "น้ำหนัก (%)": 0}])
-            edited_tasks = st.data_editor(init_df, num_rows="dynamic", use_container_width=True, hide_index=True)
-            kpi_desc = st.text_input("ตัวชี้วัดความสำเร็จ (Overall KPI)")
+            st.write("**ตารางงานย่อยประจำสัปดาห์**")
+            task_df = pd.DataFrame([{"งานย่อย": "", "เป้าหมาย": "", "น้ำหนัก (%)": 0}])
+            edited_tasks = st.data_editor(task_df, num_rows="dynamic", use_container_width=True, hide_index=True)
+            
+            kpi_input = st.text_input("ตัวชี้วัดความสำเร็จภาพรวม (KPI)")
 
-            if st.form_submit_button("บันทึกแผนประจำสัปดาห์", type="primary"):
-                final_p = p_new if p_new else p_select
-                if final_p == "-- เลือก --":
+            if st.form_submit_button("บันทึกแผนงาน", type="primary"):
+                final_project = p_text if p_text.strip() != "" else p_drop
+                if final_project == "-- เลือก --":
                     st.error("กรุณาระบุชื่อโปรเจกต์")
                 else:
-                    try:
-                        task_text = "\n".join([f"- {r['งานย่อย']} ({r['เป้าหมาย']}) [{r['น้ำหนัก (%)']}%]" for _, r in edited_tasks.iterrows() if r['งานย่อย']])
-                        sheet = get_google_sheet("Weekly Plan")
-                        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                        sheet.append_row([ts, st.session_state.user_name, f"W{week_num}", final_p, str(deadline), task_text, kpi_desc])
-                        st.success("บันทึกแผนสำเร็จ!")
-                    except Exception as e:
-                        st.error(f"เกิดข้อผิดพลาด: {e}")
+                    # รวมตารางงานย่อยเป็นข้อความ
+                    t_list = []
+                    for _, r in edited_tasks.iterrows():
+                        if r['งานย่อย']:
+                            t_list.append(f"- {r['งานย่อย']} ({r['เป้าหมาย']}) [{r['น้ำหนัก (%)']}%]")
+                    
+                    t_str = "\n".join(t_list)
+                    sheet = get_google_sheet("Weekly Plan")
+                    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    sheet.append_row([ts, current_user['Name'], f"W{week_num}", final_project, str(due), t_str, kpi_input])
+                    st.success("บันทึกแผนประจำสัปดาห์เรียบร้อย!")
 
+    # --- ส่วนที่ 2: การอัปเดตงานรายวัน ---
     with tab2:
-        with st.form("daily_update_form", clear_on_submit=True):
-            st.subheader("Daily Timesheet & Progress")
-            col_d1, col_d2 = st.columns(2)
-            with col_d1: work_date = st.date_input("วันที่ทำงาน")
-            with col_d2: clock_in = st.time_input("เวลาเข้างาน")
+        st.info("ใช้สำหรับลงเวลาเข้างานและอัปเดตงานรายวัน")
+        with st.form("daily_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1: d_work = st.date_input("วันที่ทำงาน")
+            with c2: t_in = st.time_input("เวลาเข้างาน")
 
-            p_upd = st.selectbox("โปรเจกต์ที่ทำ", PROJECTS)
-            t_cat = st.selectbox("ประเภทงาน", TASK_CATEGORIES)
-            prog = st.select_slider("ความคืบหน้างาน", options=PROGRESS_OPTS)
-            link = st.text_input("🔗 ลิงก์หลักฐานงาน (Google Drive / Photo)")
+            p_upd = st.selectbox("โปรเจกต์ที่ทำวันนี้", PROJECTS)
+            t_cat = st.selectbox("ประเภทงาน", TASKS)
+            prog = st.select_slider("ความคืบหน้างาน (%)", options=PROGRESS_LEVELS)
+            evidence = st.text_input("🔗 ลิงก์หลักฐานงาน (Google Drive/Photo Link)")
 
             if st.form_submit_button("ส่งรายงานรายวัน", type="primary"):
-                try:
-                    sheet = get_google_sheet("Daily Update")
-                    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                    sheet.append_row([ts, st.session_state.user_name, str(work_date), str(clock_in), p_upd, t_cat, prog, link])
-                    st.success("บันทึกข้อมูลรายวันสำเร็จ!")
-                except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาด: {e}")
+                sheet = get_google_sheet("Daily Update")
+                ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                sheet.append_row([ts, current_user['Name'], str(d_work), str(t_in), p_upd, t_cat, prog, evidence])
+                st.success("บันทึกอัปเดตรายวันสำเร็จ!")
